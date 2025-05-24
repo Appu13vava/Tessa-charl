@@ -1,11 +1,11 @@
 import logging
-from struct import pack
 import re
 import base64
+from struct import pack
 from pyrogram.file_id import FileId
 from pymongo.errors import DuplicateKeyError
-from umongo.frameworks.motor_asyncio import MotorAsyncIOInstance  # Correct import
 from umongo import Document, fields
+from umongo.frameworks.motor_asyncio import MotorAsyncIOInstance
 from motor.motor_asyncio import AsyncIOMotorClient
 from marshmallow.exceptions import ValidationError
 from info import DATABASE_URI, DATABASE_NAME, COLLECTION_NAME, USE_CAPTION_FILTER
@@ -13,28 +13,35 @@ from info import DATABASE_URI, DATABASE_NAME, COLLECTION_NAME, USE_CAPTION_FILTE
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# MongoDB setup
 client = AsyncIOMotorClient(DATABASE_URI)
 db = client[DATABASE_NAME]
-instance = MotorAsyncIOInstance(db)  # Correct usage
+instance = MotorAsyncIOInstance(db)
 
-@instance.register
-class Media(Document):
-    file_id = fields.StrField(attribute='_id')
-    file_ref = fields.StrField(allow_none=True)
-    file_name = fields.StrField(required=True)
-    file_size = fields.IntField(required=True)
-    file_type = fields.StrField(allow_none=True)
-    mime_type = fields.StrField(allow_none=True)
-    caption = fields.StrField(allow_none=True)
+# Global placeholder for Media document
+Media = None
 
-    class Meta:
-        indexes = ('$file_name', )
-        collection_name = COLLECTION_NAME
+def register_models():
+    global Media
 
+    @instance.register
+    class Media_(Document):
+        file_id = fields.StrField(attribute='_id')
+        file_ref = fields.StrField(allow_none=True)
+        file_name = fields.StrField(required=True)
+        file_size = fields.IntField(required=True)
+        file_type = fields.StrField(allow_none=True)
+        mime_type = fields.StrField(allow_none=True)
+        caption = fields.StrField(allow_none=True)
+
+        class Meta:
+            indexes = ('$file_name', )
+            collection_name = COLLECTION_NAME
+
+    Media = Media_
+
+# Utility functions and queries
 
 async def save_file(media):
-    """Save file in database"""
     file_id, file_ref = unpack_new_file_id(media.file_id)
     file_name = re.sub(r"(_|\-|\.|\+)", " ", str(media.file_name))
     try:
@@ -53,18 +60,15 @@ async def save_file(media):
     else:
         try:
             await file.commit()
-        except DuplicateKeyError:      
-            logger.warning(
-                f'{getattr(media, "file_name", "NO_FILE")} is already saved in database'
-            )
+        except DuplicateKeyError:
+            logger.warning(f'{getattr(media, "file_name", "NO_FILE")} already in database')
             return False, 0
         else:
-            logger.info(f'{getattr(media, "file_name", "NO_FILE")} is saved to database')
+            logger.info(f'{getattr(media, "file_name", "NO_FILE")} saved to database')
             return True, 1
 
 
 async def get_search_results(query, file_type=None, max_results=7, offset=0, filter=False):
-    """For given query return (results, next_offset)"""
     query = query.strip()
     if not query:
         raw_pattern = '.'
@@ -72,7 +76,7 @@ async def get_search_results(query, file_type=None, max_results=7, offset=0, fil
         raw_pattern = r'(\b|[\.\+\-_])' + query + r'(\b|[\.\+\-_])'
     else:
         raw_pattern = query.replace(' ', r'.*[\s\.\+\-_]')
-    
+
     try:
         regex = re.compile(raw_pattern, flags=re.IGNORECASE)
     except:
@@ -88,6 +92,7 @@ async def get_search_results(query, file_type=None, max_results=7, offset=0, fil
 
     total_results = await Media.count_documents(filter)
     next_offset = offset + max_results
+
     if next_offset > total_results:
         next_offset = ''
 
@@ -102,13 +107,13 @@ async def get_search_results(query, file_type=None, max_results=7, offset=0, fil
 async def get_file_details(query):
     filter = {'file_id': query}
     cursor = Media.find(filter)
-    filedetails = await cursor.to_list(length=1)
-    return filedetails
+    return await cursor.to_list(length=1)
 
 
 def encode_file_id(s: bytes) -> str:
     r = b""
     n = 0
+
     for i in s + bytes([22]) + bytes([4]):
         if i == 0:
             n += 1
@@ -117,6 +122,7 @@ def encode_file_id(s: bytes) -> str:
                 r += b"\x00" + bytes([n])
                 n = 0
             r += bytes([i])
+
     return base64.urlsafe_b64encode(r).decode().rstrip("=")
 
 
@@ -125,7 +131,6 @@ def encode_file_ref(file_ref: bytes) -> str:
 
 
 def unpack_new_file_id(new_file_id):
-    """Return file_id, file_ref"""
     decoded = FileId.decode(new_file_id)
     file_id = encode_file_id(
         pack(
