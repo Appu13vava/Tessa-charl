@@ -1,7 +1,7 @@
 import logging
-from struct import pack
 import re
 import base64
+from struct import pack
 
 from pyrogram.file_id import FileId
 from pymongo.errors import DuplicateKeyError
@@ -19,26 +19,25 @@ client = AsyncIOMotorClient(DATABASE_URI)
 db = client[DATABASE_NAME]
 
 # Create umongo instance from Motor DB
-instance = Instance.from_db(db)
+instance = Instance(db)  # Corrected: use Instance(db), not Instance.from_db(db)
 
 @instance.register
 class Media(Document):
-    file_id = fields.StrField(attribute='_id')
-    file_ref = fields.StrField(allow_none=True)
-    file_name = fields.StrField(required=True)
+    file_id = fields.StringField(attribute='_id')  # use StringField, not StrField
+    file_ref = fields.StringField(allow_none=True)
+    file_name = fields.StringField(required=True)
     file_size = fields.IntField(required=True)
-    file_type = fields.StrField(allow_none=True)
-    mime_type = fields.StrField(allow_none=True)
-    caption = fields.StrField(allow_none=True)
+    file_type = fields.StringField(allow_none=True)
+    mime_type = fields.StringField(allow_none=True)
+    caption = fields.StringField(allow_none=True)
 
     class Meta:
-        indexes = ['$file_name']
         collection_name = COLLECTION_NAME
+        indexes = ['$file_name']
 
 
 async def save_file(media):
     """Save file in database"""
-
     file_id, file_ref = unpack_new_file_id(media.file_id)
     file_name = re.sub(r"(_|\-|\.|\+)", " ", str(media.file_name))
     try:
@@ -58,9 +57,7 @@ async def save_file(media):
         try:
             await file.commit()
         except DuplicateKeyError:
-            logger.warning(
-                f'{getattr(media, "file_name", "NO_FILE")} is already saved in database'
-            )
+            logger.warning(f'{getattr(media, "file_name", "NO_FILE")} is already saved in database')
             return False, 0
         else:
             logger.info(f'{getattr(media, "file_name", "NO_FILE")} is saved to database')
